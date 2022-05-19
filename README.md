@@ -1,5 +1,5 @@
 # golang-websocket
-Example websocket contain client and server for simulate realwold working.
+Example websocket contain client and server for simulate the websocket with PUB/SUB case.
 # Server 
 Server waiting client connect with the request channel which used to be a channel of redis.\
 When server open connection system will subscribe channel in the redis (PUB/SUB) and if the system can receive the message then system will forward the message to client side directly.\
