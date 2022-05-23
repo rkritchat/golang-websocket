@@ -7,6 +7,7 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
+	"net"
 	"net/http"
 )
 
@@ -15,11 +16,8 @@ type socketReq struct {
 }
 
 func main() {
-
 	rdb := initRedis()
-	rdb.Subscribe(context.Background(), "")
 
-	fmt.Println("start receive on port 9001")
 	http.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("OK"))
 	})
@@ -30,42 +28,45 @@ func main() {
 			http.Error(w, "cannot update http", http.StatusInternalServerError)
 			return
 		}
-		go func() {
-			defer conn.Close()
-			msg, op, err := wsutil.ReadClientData(conn)
-			if err != nil {
-				http.Error(w, "cannot update http", http.StatusInternalServerError)
-				return
-			}
-			var req socketReq
-			err = json.Unmarshal(msg, &req)
-			if err != nil {
-				http.Error(w, "cannot update http", http.StatusInternalServerError)
-				return
-			}
-
-			fmt.Printf("request channel: %v\n", req.ChannelName)
-			sub := rdb.Subscribe(context.Background(), req.ChannelName)
-			defer sub.Close()
-			for {
-				m, err := sub.ReceiveMessage(context.Background())
-				if err != nil {
-					http.Error(w, "cannot update http", http.StatusInternalServerError)
-					return
-				}
-
-				err = wsutil.WriteServerMessage(conn, op, []byte(m.Payload))
-				if err != nil {
-					fmt.Println("client is close")
-					http.Error(w, "cannot write response message", http.StatusInternalServerError)
-					break
-				}
-			}
-		}()
+		go consumeMsg(conn, rdb, w)
 	})
+	fmt.Println("start receive on port 9001")
 	err := http.ListenAndServe(":9001", nil)
 	if err != nil {
 		panic(err)
+	}
+}
+
+func consumeMsg(conn net.Conn, rdb *redis.Client, w http.ResponseWriter) {
+	defer conn.Close()
+	msg, op, err := wsutil.ReadClientData(conn)
+	if err != nil {
+		http.Error(w, "cannot update http", http.StatusInternalServerError)
+		return
+	}
+	var req socketReq
+	err = json.Unmarshal(msg, &req)
+	if err != nil {
+		http.Error(w, "cannot update http", http.StatusInternalServerError)
+		return
+	}
+
+	fmt.Printf("request channel: %v\n", req.ChannelName)
+	sub := rdb.Subscribe(context.Background(), req.ChannelName)
+	defer sub.Close()
+	for {
+		m, err := sub.ReceiveMessage(context.Background())
+		if err != nil {
+			http.Error(w, "cannot update http", http.StatusInternalServerError)
+			return
+		}
+
+		err = wsutil.WriteServerMessage(conn, op, []byte(m.Payload))
+		if err != nil {
+			fmt.Println("client is close")
+			http.Error(w, "cannot write response message", http.StatusInternalServerError)
+			break
+		}
 	}
 }
 
